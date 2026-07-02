@@ -8,6 +8,7 @@ from app.models.event_model import Event
 from app.models.event_category_model import EventCategory
 from app.ext import db
 from datetime import datetime
+from app.models.event_registration_model import EventRegistration
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
@@ -31,6 +32,22 @@ def save_banner_file(photo):
     photo.save(str(filepath))
 
     return os.path.join("uploads", "event", filename).replace('\\', '/')
+
+
+def save_scan_wajah_file(photo):
+    if not allowed_file(photo.filename):
+        raise ValueError("Format file scan wajah tidak didukung")
+
+    ext = photo.filename.rsplit('.', 1)[1].lower()
+    filename = secure_filename(f"scan_wajah_{uuid4().hex}.{ext}")
+
+    upload_dir = BASE_DIR / "uploads" / "scan_wajah"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    filepath = upload_dir / filename
+    photo.save(str(filepath))
+
+    return os.path.join("uploads", "scan_wajah", filename).replace('\\', '/')
 
 
 def create_event(eo_id, data):
@@ -149,6 +166,8 @@ def create_event(eo_id, data):
         deskripsi=data.get("deskripsi"),
         banner=banner_path,
         lokasi=data["lokasi"],
+        maps_url=data.get("maps_url"),
+        fasilitas_peserta=data.get("fasilitas_peserta"),
         tanggal=tanggal,
         harga=harga,
         kuota=kuota
@@ -187,6 +206,16 @@ def update_event(event, data):
 
     if data.get("lokasi"):
         event.lokasi = data["lokasi"]
+
+    # ================= TAMBAHAN BARU =================
+
+    if data.get("maps_url"):
+        event.maps_url = data["maps_url"]
+
+    if data.get("fasilitas_peserta"):
+        event.fasilitas_peserta = data["fasilitas_peserta"]
+
+    # =================================================
 
     if data.get("tanggal"):
 
@@ -245,7 +274,6 @@ def update_event(event, data):
     db.session.commit()
 
     return event
-
 
 # ================= GET EVENT =================
 
@@ -317,3 +345,154 @@ def dashboard_eo(eo_id):
         "pendapatan": float(pendapatan),
         "event_aktif": event_aktif
     }
+
+# ================= LIST EVENTS =================
+
+def get_published_events():
+
+    return (
+        db.session.query(
+            Event,
+            EventCategory.nama_kategori
+        )
+        .join(
+            EventCategory,
+            Event.category_id == EventCategory.id
+        )
+        .filter(
+            Event.is_published == True
+        )
+        .all()
+    )
+
+# ================= DETAIL EVENTS =================
+
+def get_event_detail(event_id):
+
+    return (
+        db.session.query(
+            Event,
+            EventCategory.nama_kategori
+        )
+        .join(
+            EventCategory,
+            Event.category_id == EventCategory.id
+        )
+        .filter(
+            Event.id == event_id,
+            Event.is_published == True
+        )
+        .first()
+    )
+
+# ================= SERVICE CHECKOUT =================
+def register_event(user_id, event_id, data):
+
+    event = Event.query.get(event_id)
+
+    if not event:
+        raise ValueError("Event tidak ditemukan")
+
+    required = [
+        "kategori_lomba",
+        "nama_peserta",
+        "email_peserta",
+        "nama_bib",
+        "nohp_peserta",
+        "alamat_peserta",
+        "kota_peserta",
+        "provinsi_peserta",
+        "tanggal_lahir",
+        "jenis_kelamin",
+        "ukuran_jersey",
+        "golongan_darah",
+        "nama_kontak_darurat",
+        "nomor_kontak_darurat",
+        "pernyataan_sehat"
+    ]
+
+    missing = [
+        field for field in required
+        if not data.get(field) and data.get(field) != 0
+    ]
+
+    if missing:
+        raise ValueError("Field(s) required: %s" % ", ".join(missing))
+
+    existing_bib = EventRegistration.query.filter_by(
+        event_id=event_id,
+        nama_bib=data["nama_bib"]
+    ).first()
+
+    if existing_bib:
+        raise ValueError("Nama BIB sudah digunakan untuk event ini")
+
+    registration = EventRegistration(
+        user_id=user_id,
+        event_id=event_id,
+
+        kategori_lomba=data["kategori_lomba"],
+        nama_peserta=data["nama_peserta"],
+        email_peserta=data["email_peserta"],
+        nama_bib=data["nama_bib"],
+        nohp_peserta=data["nohp_peserta"],
+        alamat_peserta=data["alamat_peserta"],
+        kota_peserta=data["kota_peserta"],
+        provinsi_peserta=data["provinsi_peserta"],
+        tanggal_lahir=data["tanggal_lahir"],
+        jenis_kelamin=data["jenis_kelamin"],
+        scan_wajah=data.get("scan_wajah"),
+        ukuran_jersey=data["ukuran_jersey"],
+        golongan_darah=data["golongan_darah"],
+        nama_kontak_darurat=data["nama_kontak_darurat"],
+        nomor_kontak_darurat=data["nomor_kontak_darurat"],
+        riwayat_penyakit=data.get("riwayat_penyakit"),
+        pernyataan_sehat=data["pernyataan_sehat"],
+
+        status="pending_payment"
+    )
+
+    db.session.add(registration)
+    db.session.commit()
+
+    return registration
+
+
+def get_registration(registration_id):
+    return EventRegistration.query.get(registration_id)
+
+
+# ================= UPLOAD PAYMENT =================
+def upload_payment(registration, photo):
+
+    ext = photo.filename.rsplit(
+        ".",
+        1
+    )[1].lower()
+
+    filename = secure_filename(
+        f"payment_{registration.id}.{ext}"
+    )
+
+    upload_dir = BASE_DIR / "uploads" / "payment"
+
+    os.makedirs(
+        upload_dir,
+        exist_ok=True
+    )
+
+    filepath = upload_dir / filename
+
+    photo.save(str(filepath))
+
+    registration.bukti_pembayaran = (
+        f"uploads/payment/{filename}"
+    )
+
+    registration.status = (
+        "waiting_verification"
+    )
+
+    db.session.commit()
+
+    return registration

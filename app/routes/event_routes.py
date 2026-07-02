@@ -7,7 +7,19 @@ from flask_jwt_extended import (
     get_jwt_identity
 )
 
-from app.services.event_service import *
+from app.services.event_service import (
+    create_event,
+    get_events_by_eo,
+    get_event,
+    delete_event,
+    update_event,
+    get_event_detail,
+    get_published_events,
+    register_event,
+    get_registration,
+    upload_payment,
+    save_scan_wajah_file
+)
 
 from app.decorators.eo_required import eo_required
 
@@ -314,3 +326,266 @@ def dashboard():
     data = dashboard_eo(eo_id)
 
     return jsonify(data), 200
+
+@event_bp.route(
+    "/list",
+    methods=["GET"]
+)
+@jwt_required()
+def list_event():
+    """
+    List Event Untuk User
+    ---
+    tags:
+      - User Event
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Berhasil mengambil data event
+    """
+
+    events = get_published_events()
+
+    result = []
+
+    for event, kategori in events:
+
+        result.append({
+            "id": event.id,
+            "nama_event": event.nama_event,
+            "lokasi": event.lokasi,
+            "tanggal": str(event.tanggal),
+            "harga": float(event.harga),
+            "kuota": event.kuota,
+            "banner": event.banner,
+            "kategori": kategori
+        })
+
+    return jsonify(result), 200
+
+@event_bp.route(
+    "/detail/<int:event_id>",
+    methods=["GET"]
+)
+@jwt_required()
+def detail_event(event_id):
+    """
+    Detail Event
+    ---
+    tags:
+      - User Event
+    security:
+      - Bearer: []
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Detail event
+      404:
+        description: Event tidak ditemukan
+    """
+
+    data = get_event_detail(event_id)
+
+    if not data:
+        return jsonify({
+            "msg": "Event tidak ditemukan"
+        }), 404
+
+    event, kategori = data
+
+    return jsonify({
+        "id": event.id,
+        "nama_event": event.nama_event,
+        "banner": event.banner,
+        "deskripsi": event.deskripsi,
+        "kategori": kategori,
+        "tanggal": str(event.tanggal),
+        "lokasi": event.lokasi,
+        "maps_url": event.maps_url,
+        "harga": float(event.harga),
+        "kuota": event.kuota,
+        "total_peserta": event.total_peserta,
+        "fasilitas_peserta": event.fasilitas_peserta,
+        "status": event.status
+    }), 200
+
+@event_bp.route(
+    "/register/<int:event_id>",
+    methods=["POST"]
+)
+@jwt_required()
+def register_event_user(event_id):
+    """
+    Register Event
+    ---
+    tags:
+      - Event Registration
+    consumes:
+      - multipart/form-data
+    security:
+      - Bearer: []
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        type: integer
+      - name: kategori_lomba
+        in: formData
+        required: true
+        type: string
+      - name: nama_peserta
+        in: formData
+        required: true
+        type: string
+      - name: email_peserta
+        in: formData
+        required: true
+        type: string
+      - name: nama_bib
+        in: formData
+        required: true
+        type: string
+      - name: nohp_peserta
+        in: formData
+        required: true
+        type: string
+      - name: alamat_peserta
+        in: formData
+        required: true
+        type: string
+      - name: kota_peserta
+        in: formData
+        required: true
+        type: string
+      - name: provinsi_peserta
+        in: formData
+        required: true
+        type: string
+      - name: tanggal_lahir
+        in: formData
+        required: true
+        type: string
+      - name: jenis_kelamin
+        in: formData
+        required: true
+        type: string
+      - name: scan_wajah
+        in: formData
+        required: true
+        type: file
+      - name: ukuran_jersey
+        in: formData
+        required: true
+        type: string
+      - name: golongan_darah
+        in: formData
+        required: true
+        type: string
+      - name: nama_kontak_darurat
+        in: formData
+        required: true
+        type: string
+      - name: nomor_kontak_darurat
+        in: formData
+        required: true
+        type: string
+      - name: riwayat_penyakit
+        in: formData
+        required: false
+        type: string
+      - name: pernyataan_sehat
+        in: formData
+        required: true
+        type: string
+    responses:
+      201:
+        description: Berhasil daftar event
+    """
+
+    user_id = int(
+        get_jwt_identity()
+    )
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    scan_wajah = request.files.get("scan_wajah")
+    if scan_wajah:
+        data["scan_wajah"] = save_scan_wajah_file(scan_wajah)
+
+    registration = register_event(
+        user_id,
+        event_id,
+        data
+    )
+
+    return jsonify({
+        "msg": "Pendaftaran berhasil",
+        "registration_id": registration.id
+    }), 201 
+
+@event_bp.route(
+    "/payment/<int:registration_id>",
+    methods=["PUT"]
+)
+@jwt_required()
+def upload_payment_proof(
+    registration_id
+):
+    """
+    Upload Bukti Pembayaran
+    ---
+    tags:
+      - Event Registration
+    consumes:
+      - multipart/form-data
+    security:
+      - Bearer: []
+    parameters:
+      - name: registration_id
+        in: path
+        required: true
+        type: integer
+      - name: bukti
+        in: formData
+        type: file
+        required: true
+    responses:
+      200:
+        description: Upload berhasil
+    """
+
+    registration = get_registration(
+        registration_id
+    )
+
+    if not registration:
+        return jsonify({
+            "msg": "Data tidak ditemukan"
+        }), 404
+
+    photo = request.files.get(
+        "bukti"
+    )
+
+    if not photo:
+        return jsonify({
+            "msg": "File wajib diupload"
+        }), 400
+
+    upload_payment(
+        registration,
+        photo
+    )
+
+    return jsonify({
+        "msg": "Bukti pembayaran berhasil diupload",
+        "status": "waiting_verification"
+    }), 200

@@ -34,6 +34,7 @@ def create_app():
     # This prevents NoReferencedTableError for foreign keys (e.g. event_categories)
     try:
         from .models import event_category_model  # noqa: F401
+        from .models import event_registration_model  # noqa: F401
     except Exception:
         pass
 

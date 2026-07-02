@@ -39,8 +39,16 @@ class Event(db.Model):
         nullable=False
     )
 
+    maps_url = db.Column(
+        db.String(500)
+    )
+
+    fasilitas_peserta = db.Column(
+        db.Text
+    )
+
     tanggal = db.Column(
-        db.DateTime,
+        db.DateTime(),
         nullable=False
     )
 
