@@ -17,8 +17,18 @@ from app.services.event_service import (
     get_published_events,
     register_event,
     get_registration,
+    get_registration_detail,
     upload_payment,
-    save_scan_wajah_file
+    save_scan_wajah_file,
+
+    get_event_registrations_by_eo,
+    approve_payment,
+    reject_payment,
+    normalize_registration_data,
+    get_my_registrations,
+
+    dashboard_eo,
+    publish_event
 )
 
 from app.decorators.eo_required import eo_required
@@ -414,6 +424,73 @@ def detail_event(event_id):
         "status": event.status
     }), 200
 
+
+@event_bp.route(
+    "/registrations/<int:event_id>",
+    methods=["GET"]
+)
+@jwt_required()
+@eo_required()
+def get_event_registrations(event_id):
+    """
+    List Event Registrations (EO only)
+    ---
+    tags:
+      - Event Registration
+    security:
+      - Bearer: []
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Daftar pendaftar berhasil diambil
+      404:
+        description: Event tidak ditemukan atau bukan milik EO
+    """
+
+    eo_id = int(get_jwt_identity())
+
+    event = get_event(event_id)
+    if not event or event.eo_id != eo_id:
+        return jsonify({"msg": "Event tidak ditemukan"}), 404
+
+    registrations = get_event_registrations_by_eo(
+        eo_id,
+        event_id=event_id
+    )
+
+    result = []
+    for registration in registrations:
+        result.append({
+    "registration_id": registration.id,
+
+    "bib_number": registration.bib_number,
+
+    "event_id": registration.event_id,
+    "user_id": registration.user_id,
+
+    "user_name": registration.user.nama,
+
+    "kategori_lomba": registration.kategori_lomba,
+
+    "nama_peserta": registration.nama_peserta,
+
+    "email_peserta": registration.email_peserta,
+
+    "nama_bib": registration.nama_bib,
+
+    "status": registration.status,
+
+    "reject_reason": registration.reject_reason,
+
+    "bukti_pembayaran": registration.bukti_pembayaran
+})
+    return jsonify(result), 200
+
+
 @event_bp.route(
     "/register/<int:event_id>",
     methods=["POST"]
@@ -516,9 +593,11 @@ def register_event_user(event_id):
     else:
         data = request.form.to_dict()
 
-    scan_wajah = request.files.get("scan_wajah")
+    scan_wajah = request.files.get("scan_wajah") or request.files.get("scanWajah")
     if scan_wajah:
         data["scan_wajah"] = save_scan_wajah_file(scan_wajah)
+
+    data = normalize_registration_data(data)
 
     registration = register_event(
         user_id,
@@ -528,16 +607,95 @@ def register_event_user(event_id):
 
     return jsonify({
         "msg": "Pendaftaran berhasil",
-        "registration_id": registration.id
+        "registration_id": registration.id,
+        "user_id": registration.user_id,
+        "status": registration.status
     }), 201 
 
 @event_bp.route(
-    "/payment/<int:registration_id>",
+    "/approve-payment/<int:registration_id>",
     methods=["PUT"]
 )
 @jwt_required()
-def upload_payment_proof(
+@eo_required()
+def approve_registration_payment(
     registration_id
+):
+    """
+    Approve Pembayaran
+    ---
+    tags:
+      - Event Registration
+    security:
+      - Bearer: []
+    parameters:
+      - name: registration_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Pembayaran berhasil diverifikasi
+      404:
+        description: Data tidak ditemukan
+    """
+
+    eo_id = int(get_jwt_identity())
+
+    registration = get_registration(registration_id)
+
+    if not registration:
+      return jsonify({"msg": "Data tidak ditemukan"}), 404
+
+    event = get_event(registration.event_id)
+
+    if event.eo_id != eo_id:
+      return jsonify({"msg": "Bukan event milik anda"}), 403
+
+    # Accept action from request body (JSON or form)
+    if request.is_json:
+      data = request.get_json() or {}
+    else:
+      data = request.form.to_dict()
+
+    action = (data.get("action") or data.get("status") or "").strip().lower()
+
+    if not action:
+      return jsonify({"msg": "Field 'action' diperlukan (approve|reject)"}), 400
+
+    if action == "approve" or action == "accepted":
+      registration = approve_payment(registration)
+
+      return jsonify({
+        "msg": "Pembayaran disetujui",
+        "registration_id": registration.id,
+        "bib_number": registration.bib_number,
+        "status": registration.status
+      }), 200
+
+    elif action == "reject" or action == "rejected":
+      reason = data.get("reason") or data.get("reject_reason")
+      if not reason:
+        return jsonify({"msg": "Field 'reason' diperlukan saat menolak pembayaran"}), 400
+
+      registration = reject_payment(registration, reason)
+
+      return jsonify({
+        "msg": "Pembayaran ditolak",
+        "registration_id": registration.id,
+        "status": registration.status,
+        "reject_reason": registration.reject_reason
+      }), 200
+
+    else:
+      return jsonify({"msg": "Action tidak valid. Gunakan 'approve' atau 'reject'"}), 400
+@event_bp.route(
+  "/payment/<int:registration_id>",
+  methods=["PUT"]
+)
+@jwt_required()
+def upload_payment_proof(
+  registration_id
 ):
     """
     Upload Bukti Pembayaran
@@ -571,8 +729,12 @@ def upload_payment_proof(
             "msg": "Data tidak ditemukan"
         }), 404
 
-    photo = request.files.get(
-        "bukti"
+    photo = (
+        request.files.get("bukti")
+        or request.files.get("bukti_pembayaran")
+        or request.files.get("payment")
+        or request.files.get("proof")
+        or request.files.get("payment_proof")
     )
 
     if not photo:
@@ -589,3 +751,81 @@ def upload_payment_proof(
         "msg": "Bukti pembayaran berhasil diupload",
         "status": "waiting_verification"
     }), 200
+  # ================= MY EVENT =================
+
+@event_bp.route(
+    "/me",
+    methods=["GET"]
+)
+@jwt_required()
+def my_registrations():
+    """
+    My Registrations
+    ---
+    tags:
+      - Event Registration
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Riwayat pendaftaran event user
+    """
+
+    user_id = int(
+        get_jwt_identity()
+    )
+
+    registrations = get_my_registrations(
+        user_id
+    )
+
+    result = []
+
+    for registration, event in registrations:
+
+        result.append({
+
+            "registration_id":
+                registration.id,
+
+            "event_id":
+                event.id,
+
+            "nama_event":
+                event.nama_event,
+
+            "banner":
+                event.banner,
+
+            "tanggal_event":
+                str(event.tanggal),
+
+            "lokasi":
+                event.lokasi,
+
+            "harga":
+                float(event.harga),
+
+            "status":
+                registration.status,
+
+            "bib_number":
+                registration.bib_number,
+
+            "reject_reason":
+                registration.reject_reason,
+
+            "bukti_pembayaran":
+                registration.bukti_pembayaran,
+
+            "kategori_lomba":
+                registration.kategori_lomba,
+
+            "nama_peserta":
+                registration.nama_peserta,
+
+            "created_at":
+                registration.created_at.isoformat()
+        })
+
+    return jsonify(result), 200

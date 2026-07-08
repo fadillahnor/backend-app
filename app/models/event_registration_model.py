@@ -41,7 +41,10 @@ class EventRegistration(db.Model):
         db.String(100),
         nullable=False
     )
-
+    bib_number = db.Column(
+    db.String(50),
+    unique=True
+    )
     nohp_peserta = db.Column(
         db.String(20),
         nullable=False
@@ -108,19 +111,32 @@ class EventRegistration(db.Model):
     bukti_pembayaran = db.Column(
         db.String(255)
     )
+    bib_number = db.Column(
+    db.String(50),
+    unique=True
+)
 
+    reject_reason = db.Column(
+    db.Text
+)
     status = db.Column(
         db.String(30),
         default="pending_payment"
     )
-
+    reject_reason = db.Column(
+    db.Text
+    )
     created_at = db.Column(
         db.DateTime,
         default=datetime.utcnow
     )
 
-    def get_registration(registration_id):
-
-        return EventRegistration.query.get(
-        registration_id
+    user = db.relationship(
+        "User",
+        backref="event_registrations",
+        lazy="joined"
     )
+
+    @staticmethod
+    def get_registration(registration_id):
+        return EventRegistration.query.get(registration_id)

@@ -17,8 +17,11 @@ def create_app():
     app = Flask(__name__)
 
     app.config.from_object(Config)
+    app.config.setdefault('CORS_HEADERS', 'Content-Type,Authorization')
+    app.config.setdefault('CORS_RESOURCES', {r"/*": {"origins": "*"}})
+    app.config.setdefault('CORS_SUPPORTS_CREDENTIALS', True)
 
-    CORS(app, resources={r"/*": {"origins": "*"}})
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True, allow_headers=['Content-Type', 'Authorization'], methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
     if app.debug:
         print("MAIL_USERNAME:", app.config.get("MAIL_USERNAME"))

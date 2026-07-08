@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 from werkzeug.utils import secure_filename
+from datetime import datetime
 import re
 
 from app.models.event_model import Event
@@ -9,6 +10,41 @@ from app.models.event_category_model import EventCategory
 from app.ext import db
 from datetime import datetime
 from app.models.event_registration_model import EventRegistration
+from sqlalchemy.orm import joinedload
+
+REGISTRATION_KEY_MAP = {
+    'kategoriLomba': 'kategori_lomba',
+    'namaPeserta': 'nama_peserta',
+    'emailPeserta': 'email_peserta',
+    'namaBib': 'nama_bib',
+    'nohpPeserta': 'nohp_peserta',
+    'alamatPeserta': 'alamat_peserta',
+    'kotaPeserta': 'kota_peserta',
+    'provinsiPeserta': 'provinsi_peserta',
+    'tanggalLahir': 'tanggal_lahir',
+    'jenisKelamin': 'jenis_kelamin',
+    'scanWajah': 'scan_wajah',
+    'ukuranJersey': 'ukuran_jersey',
+    'golonganDarah': 'golongan_darah',
+    'namaKontakDarurat': 'nama_kontak_darurat',
+    'nomorKontakDarurat': 'nomor_kontak_darurat',
+    'riwayatPenyakit': 'riwayat_penyakit',
+    'pernyataanSehat': 'pernyataan_sehat',
+    'buktiPembayaran': 'bukti_pembayaran'
+}
+
+def camel_to_snake(name):
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def normalize_registration_data(data):
+    normalized = {}
+    for key, value in data.items():
+        normalized_key = REGISTRATION_KEY_MAP.get(key, camel_to_snake(key))
+        normalized[normalized_key] = value
+    return normalized
+
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
@@ -385,8 +421,25 @@ def get_event_detail(event_id):
         .first()
     )
 
+
+def get_event_registrations_by_eo(eo_id, event_id=None):
+    query = (
+        EventRegistration.query
+        .join(Event, EventRegistration.event_id == Event.id)
+        .options(joinedload(EventRegistration.user))
+        .filter(Event.eo_id == eo_id)
+    )
+
+    if event_id is not None:
+        query = query.filter(EventRegistration.event_id == event_id)
+
+    return query.all()
+
+
 # ================= SERVICE CHECKOUT =================
 def register_event(user_id, event_id, data):
+
+    data = normalize_registration_data(data or {})
 
     event = Event.query.get(event_id)
 
@@ -459,7 +512,12 @@ def register_event(user_id, event_id, data):
 
 
 def get_registration(registration_id):
-    return EventRegistration.query.get(registration_id)
+    return (
+        EventRegistration.query
+        .options(joinedload(EventRegistration.user))
+        .filter_by(id=registration_id)
+        .first()
+    )
 
 
 # ================= UPLOAD PAYMENT =================
@@ -496,3 +554,111 @@ def upload_payment(registration, photo):
     db.session.commit()
 
     return registration
+def generate_bib_number(event_id):
+
+    total = EventRegistration.query.filter_by(
+        event_id=event_id
+    ).count()
+
+    nomor_urut = total + 1
+
+    tahun = datetime.now().year
+
+    return f"RUN-{tahun}-{event_id:03d}-{nomor_urut:04d}"
+
+# ================= GENERATE BIB NUMBER =================
+def generate_bib_number(event_id):
+
+    total = EventRegistration.query.filter_by(
+        event_id=event_id
+    ).count()
+
+    nomor_urut = total + 1
+
+    tahun = datetime.now().year
+
+    return f"RUN-{tahun}-{event_id:03d}-{nomor_urut:04d}"
+
+# ================= APPROVE PAYMENT =================
+def approve_payment(registration):
+
+    bib_number = generate_bib_number(
+        registration.event_id
+    )
+
+    registration.bib_number = bib_number
+
+    registration.status = "approved"
+
+    event = Event.query.get(
+        registration.event_id
+    )
+
+    event.total_peserta += 1
+
+    db.session.commit()
+
+    return registration
+
+
+# ================= REJECT PAYMENT =================
+def reject_payment(
+    registration,
+    reason
+):
+
+    registration.status = "rejected"
+
+    registration.reject_reason = reason
+
+    db.session.commit()
+
+    return registration
+
+
+    # ================= MY REGISTRATIONS =================
+
+def get_my_registrations(user_id):
+
+    return (
+        EventRegistration.query
+        .join(
+            Event,
+            EventRegistration.event_id == Event.id
+        )
+        .filter(
+            EventRegistration.user_id == user_id
+        )
+        .all()
+    )
+    # ================= DETAIL REGISTRATIONS =================
+
+def get_registration_detail(registration_id):
+    return (
+        EventRegistration.query
+        .join(
+            Event,
+            EventRegistration.event_id == Event.id
+        )
+        .add_entity(Event)
+        .filter(
+            EventRegistration.user_id == user_id
+        )
+        .all()
+    )
+
+def get_registration_detail(
+    registration_id
+):
+    return (
+        EventRegistration.query
+        .options(
+            joinedload(
+                EventRegistration.user
+            )
+        )
+        .filter_by(
+            id=registration_id
+        )
+        .first()
+    )

@@ -9,6 +9,7 @@ from app.services.auth_service import (
 
 from app.services.profile_service import update_profile
 from app.models.user_model import User
+from app.models.event_registration_model import EventRegistration
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -200,6 +201,63 @@ def get_profile():
     "is_verified": user.is_verified,
     "created_at": user.created_at.isoformat()
 }), 200
+
+
+# ================= GET ME =================
+@auth_bp.route("/me", methods=["GET", "OPTIONS"])
+@jwt_required(optional=True)
+def get_me():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({"msg": "Unauthorized"}), 401
+
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({
+            "msg": "User tidak ditemukan"
+        }), 404
+
+    registrations = EventRegistration.query.filter_by(user_id=user_id).all()
+
+    registration_data = [
+        {
+            "id": r.id,
+            "event_id": r.event_id,
+            "status": r.status,
+            "bib_number": r.bib_number,
+            "nama_bib": r.nama_bib,
+            "bukti_pembayaran": r.bukti_pembayaran,
+            "reject_reason": r.reject_reason,
+            "created_at": r.created_at.isoformat()
+        }
+        for r in registrations
+    ]
+
+    # Combine user data and latest registration status
+    latest_registration = registrations[-1] if registrations else None
+
+    return jsonify({
+        "id": user.id,
+        "nama": user.nama,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "role_name": user.role_name,
+        "tgl_lahir": str(user.tgl_lahir) if user.tgl_lahir else None,
+        "nohp": user.nohp,
+        "alamat": user.alamat,
+        "foto_profile": user.foto_profile,
+        "is_verified": user.is_verified,
+        "created_at": user.created_at.isoformat(),
+        "registrations": registration_data,
+        "payment_verified": latest_registration.status == "approved" if latest_registration else None,
+        "bib_number": latest_registration.bib_number if latest_registration else None,
+        "registration_status": latest_registration.status if latest_registration else None
+    }), 200
 
 
 # ================= EDIT PROFILE =================
