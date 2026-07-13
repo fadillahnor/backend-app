@@ -206,7 +206,9 @@ def create_event(eo_id, data):
         fasilitas_peserta=data.get("fasilitas_peserta"),
         tanggal=tanggal,
         harga=harga,
-        kuota=kuota
+        kuota=kuota,
+        nomor_rekening=data.get("nomor_rekening"),
+        jenis_bank=data.get("jenis_bank")
     )
 
     db.session.add(event)
@@ -250,6 +252,12 @@ def update_event(event, data):
 
     if data.get("fasilitas_peserta"):
         event.fasilitas_peserta = data["fasilitas_peserta"]
+
+    if data.get("nomor_rekening") is not None:
+        event.nomor_rekening = data["nomor_rekening"]
+
+    if data.get("jenis_bank") is not None:
+        event.jenis_bank = data["jenis_bank"]
 
     # =================================================
 
@@ -588,7 +596,7 @@ def approve_payment(registration):
 
     registration.bib_number = bib_number
 
-    registration.status = "approved"
+    registration.status = "paid"
 
     event = Event.query.get(
         registration.event_id
@@ -621,7 +629,10 @@ def reject_payment(
 def get_my_registrations(user_id):
 
     return (
-        EventRegistration.query
+        db.session.query(
+            EventRegistration,
+            Event
+        )
         .join(
             Event,
             EventRegistration.event_id == Event.id

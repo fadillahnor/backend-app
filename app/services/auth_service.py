@@ -76,7 +76,6 @@ def login_user(data):
 
     email = data.get("email")
     password = str(data.get("password", "")).strip()
-    role_value = data.get("role")
 
     if not email:
         return None, "Email harus diisi"
@@ -84,33 +83,10 @@ def login_user(data):
     if not password:
         return None, "Password tidak boleh kosong"
 
-    user = None
-
-    if role_value is None:
-        # If no role provided, check SUPER_ADMIN first
-        user = User.query.filter_by(email=email, role=3).first()
-        if not user:
-            return None, "Role harus diisi untuk login sebagai User atau EO"
-    else:
-        try:
-            role = int(role_value)
-        except (TypeError, ValueError):
-            return None, "Role tidak valid"
-
-        if role == 0:
-            # Treat role 0 as explicit request to authenticate as SUPER_ADMIN first
-            user = User.query.filter_by(email=email, role=3).first()
-            if not user:
-                return None, "Role tidak valid"
-        elif role in [1, 2, 3]:
-            user = User.query.filter_by(
-                email=email,
-                role=role
-            ).first()
-            if not user:
-                return None, "User tidak ditemukan"
-        else:
-            return None, "Role tidak valid"
+    # Find the user by email regardless of role
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return None, "User tidak ditemukan"
 
     if not check_password_hash(user.password, password):
         # Legacy support: if password is stored in plain text, allow exact match
@@ -133,19 +109,3 @@ def login_user(data):
         "user_id": user.id,
         "nama": user.nama
     }, None
-
-    # Use string identity to avoid PyJWT "Subject must be a string" errors
-    token = create_access_token(
-    identity=str(user.id),
-    additional_claims={
-        "role": user.role
-    }
-)
-    
-
-    return {
-    "token": token,
-    "role": user.role,
-    "user_id": user.id,
-    "nama": user.nama
-},  None

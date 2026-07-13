@@ -77,6 +77,16 @@ class Event(db.Model):
         default="draft"
     )
 
+    nomor_rekening = db.Column(
+        db.String(100),
+        nullable=True
+    )
+
+    jenis_bank = db.Column(
+        db.String(100),
+        nullable=True
+    )
+
     created_at = db.Column(
         db.DateTime,
         default=datetime.utcnow

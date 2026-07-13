@@ -1,10 +1,5 @@
-from flask import Flask, send_from_directory
-from flask_cors import CORS
-from dotenv import load_dotenv
 from pathlib import Path
-
-from .config import Config
-from .ext import db, jwt, mail, swagger
+from dotenv import load_dotenv
 
 # Load .env from backend-app root explicitly so changes are picked up
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +7,13 @@ dotenv_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path)
 
 print(f"Loading environment from: {dotenv_path}")
+
+from flask import Flask, send_from_directory
+from flask_cors import CORS
+
+from .config import Config
+from .ext import db, jwt, mail, swagger
+
 
 def create_app():
     app = Flask(__name__)
@@ -59,6 +61,22 @@ def create_app():
     @app.route('/uploads/event/<filename>')
     def event_uploaded_file(filename):
         upload_folder = BASE_DIR / 'uploads' / 'event'
+        return send_from_directory(
+            str(upload_folder),
+            filename
+        )
+
+    @app.route('/uploads/payment/<filename>')
+    def payment_uploaded_file(filename):
+        upload_folder = BASE_DIR / 'uploads' / 'payment'
+        return send_from_directory(
+            str(upload_folder),
+            filename
+        )
+
+    @app.route('/uploads/scan_wajah/<filename>')
+    def scan_wajah_uploaded_file(filename):
+        upload_folder = BASE_DIR / 'uploads' / 'scan_wajah'
         return send_from_directory(
             str(upload_folder),
             filename

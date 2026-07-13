@@ -1,11 +1,15 @@
 from flask import Blueprint
 from flask import request
 from flask import jsonify
+from datetime import datetime
+
 
 from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity
 )
+from app.ext import db
+from app.models.event_registration_model import EventRegistration
 
 from app.services.event_service import (
     create_event,
@@ -283,6 +287,8 @@ def update(event_id):
             "lokasi": event.lokasi,
             "tanggal": str(event.tanggal),
             "banner": event.banner,
+            "nomor_rekening": event.nomor_rekening,
+            "jenis_bank": event.jenis_bank,
             "status": event.status
         }
     }), 200
@@ -421,8 +427,52 @@ def detail_event(event_id):
         "kuota": event.kuota,
         "total_peserta": event.total_peserta,
         "fasilitas_peserta": event.fasilitas_peserta,
+        "nomor_rekening": event.nomor_rekening,
+        "jenis_bank": event.jenis_bank,
         "status": event.status
     }), 200
+
+
+@event_bp.route(
+    "/registrations",
+    methods=["GET"]
+)
+@jwt_required()
+@eo_required()
+def get_all_registrations():
+    """
+    List Semua Registrasi Event Milik EO (EO only)
+    ---
+    tags:
+      - Event Registration
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Semua daftar pendaftar dari semua event milik EO berhasil diambil
+    """
+
+    eo_id = int(get_jwt_identity())
+
+    registrations = get_event_registrations_by_eo(eo_id)
+
+    result = []
+    for registration in registrations:
+        result.append({
+            "registration_id": registration.id,
+            "bib_number": registration.bib_number,
+            "event_id": registration.event_id,
+            "user_id": registration.user_id,
+            "user_name": registration.user.nama,
+            "kategori_lomba": registration.kategori_lomba,
+            "nama_peserta": registration.nama_peserta,
+            "email_peserta": registration.email_peserta,
+            "nama_bib": registration.nama_bib,
+            "status": registration.status,
+            "reject_reason": registration.reject_reason,
+            "bukti_pembayaran": registration.bukti_pembayaran
+        })
+    return jsonify(result), 200
 
 
 @event_bp.route(
@@ -465,29 +515,19 @@ def get_event_registrations(event_id):
     result = []
     for registration in registrations:
         result.append({
-    "registration_id": registration.id,
-
-    "bib_number": registration.bib_number,
-
-    "event_id": registration.event_id,
-    "user_id": registration.user_id,
-
-    "user_name": registration.user.nama,
-
-    "kategori_lomba": registration.kategori_lomba,
-
-    "nama_peserta": registration.nama_peserta,
-
-    "email_peserta": registration.email_peserta,
-
-    "nama_bib": registration.nama_bib,
-
-    "status": registration.status,
-
-    "reject_reason": registration.reject_reason,
-
-    "bukti_pembayaran": registration.bukti_pembayaran
-})
+            "registration_id": registration.id,
+            "bib_number": registration.bib_number,
+            "event_id": registration.event_id,
+            "user_id": registration.user_id,
+            "user_name": registration.user.nama,
+            "kategori_lomba": registration.kategori_lomba,
+            "nama_peserta": registration.nama_peserta,
+            "email_peserta": registration.email_peserta,
+            "nama_bib": registration.nama_bib,
+            "status": registration.status,
+            "reject_reason": registration.reject_reason,
+            "bukti_pembayaran": registration.bukti_pembayaran
+        })
     return jsonify(result), 200
 
 
@@ -824,8 +864,277 @@ def my_registrations():
             "nama_peserta":
                 registration.nama_peserta,
 
+            "status_kehadiran":
+                registration.status_kehadiran or "belum_hadir",
+
+            "scan_at":
+                registration.scan_at.isoformat() if registration.scan_at else None,
+
+            "status_kehadiran_event":
+                registration.status_kehadiran_event or "belum_hadir",
+
+            "checkin_event_at":
+                registration.checkin_event_at.isoformat() if registration.checkin_event_at else None,
+
             "created_at":
                 registration.created_at.isoformat()
         })
 
+    return jsonify(result), 200
+
+@event_bp.route("/verify-scan/<code>", methods=["GET"])
+@jwt_required()
+@eo_required()
+def verify_scan(code):
+    eo_id = int(get_jwt_identity())
+    
+    registration = None
+    if code.startswith("REG-"):
+        try:
+            reg_id = int(code.replace("REG-", ""))
+            registration = get_registration(reg_id)
+        except ValueError:
+            pass
+    else:
+        registration = EventRegistration.query.filter_by(bib_number=code).first()
+        
+    if not registration:
+        return jsonify({"msg": "Data pendaftaran tidak ditemukan"}), 404
+        
+    event = get_event(registration.event_id)
+    if not event or event.eo_id != eo_id:
+        return jsonify({"msg": "Pendaftaran bukan untuk event milik Anda"}), 403
+        
+    return jsonify({
+        "registration_id": registration.id,
+        "bib_number": registration.bib_number,
+        "nama_peserta": registration.nama_peserta,
+        "email_peserta": registration.email_peserta,
+        "kategori_lomba": registration.kategori_lomba,
+        "nama_bib": registration.nama_bib,
+        "scan_wajah": registration.scan_wajah,
+        "status": registration.status,
+        "status_kehadiran": registration.status_kehadiran or "belum_hadir",
+        "scan_at": registration.scan_at.isoformat() if registration.scan_at else None,
+        "status_kehadiran_event": registration.status_kehadiran_event or "belum_hadir",
+        "checkin_event_at": registration.checkin_event_at.isoformat() if registration.checkin_event_at else None,
+        "nama_event": event.nama_event
+    }), 200
+
+@event_bp.route("/checkin/<int:registration_id>", methods=["PUT"])
+@jwt_required()
+@eo_required()
+def checkin_participant(registration_id):
+    eo_id = int(get_jwt_identity())
+    
+    registration = get_registration(registration_id)
+    if not registration:
+        return jsonify({"msg": "Data pendaftaran tidak ditemukan"}), 404
+        
+    event = get_event(registration.event_id)
+    if not event or event.eo_id != eo_id:
+        return jsonify({"msg": "Bukan event milik Anda"}), 403
+        
+    if registration.status != "paid":
+        return jsonify({"msg": "Peserta belum melunasi pembayaran"}), 400
+        
+    if registration.status_kehadiran == "hadir":
+        return jsonify({"msg": "Racepack sudah diambil (sudah di-scan)"}), 400
+        
+    registration.status_kehadiran = "hadir"
+    registration.scan_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        "msg": "Check-in berhasil",
+        "registration_id": registration.id,
+        "status_kehadiran": registration.status_kehadiran,
+        "scan_at": registration.scan_at.isoformat()
+    }), 200
+
+@event_bp.route("/checkin-event/<int:registration_id>", methods=["PUT"])
+@jwt_required()
+@eo_required()
+def checkin_event(registration_id):
+    eo_id = int(get_jwt_identity())
+    
+    registration = get_registration(registration_id)
+    if not registration:
+        return jsonify({"msg": "Data pendaftaran tidak ditemukan"}), 404
+        
+    event = get_event(registration.event_id)
+    if not event or event.eo_id != eo_id:
+        return jsonify({"msg": "Bukan event milik Anda"}), 403
+        
+    if registration.status != "paid":
+        return jsonify({"msg": "Peserta belum melunasi pembayaran"}), 400
+        
+    if registration.status_kehadiran_event == "hadir":
+        return jsonify({"msg": "Peserta sudah melakukan check-in untuk event ini"}), 400
+        
+    # Real face verification check (mandatory)
+    face_image = request.files.get("face_image")
+    if not face_image:
+        return jsonify({"msg": "File gambar wajah (face_image) wajib diunggah untuk pencocokan AI"}), 400
+        
+    if not registration.scan_wajah:
+        return jsonify({"msg": "Peserta tidak memiliki foto pendaftaran"}), 400
+        
+    import os
+    from uuid import uuid4
+    from app import BASE_DIR
+    from app.utils.face_verifier import verify_faces
+    
+    ext = face_image.filename.rsplit('.', 1)[1].lower() if '.' in face_image.filename else 'png'
+    temp_dir = BASE_DIR / "uploads" / "temp"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    temp_file = temp_dir / f"scan_{uuid4().hex}.{ext}"
+    face_image.save(str(temp_file))
+    
+    try:
+        registered_photo_path = BASE_DIR / registration.scan_wajah
+        if not registered_photo_path.exists():
+            return jsonify({"msg": "Berkas foto pendaftaran peserta tidak ditemukan di server"}), 500
+            
+        is_match, score, err = verify_faces(temp_file, registered_photo_path)
+        if not is_match:
+            err_msg = f"Wajah tidak cocok dengan foto pendaftaran. (Skor kemiripan: {score:.3f})"
+            if err:
+                err_msg += f" Detail: {err}"
+            return jsonify({"msg": err_msg}), 400
+    finally:
+        if temp_file.exists():
+            try:
+                os.remove(str(temp_file))
+            except Exception:
+                pass
+                    
+    registration.status_kehadiran_event = "hadir"
+    registration.checkin_event_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        "msg": "Check-in Event berhasil",
+        "registration_id": registration.id,
+        "status_kehadiran_event": registration.status_kehadiran_event,
+        "checkin_event_at": registration.checkin_event_at.isoformat()
+    }), 200
+
+@event_bp.route("/match-face", methods=["POST"])
+@jwt_required()
+@eo_required()
+def match_face():
+    from app.models.event_model import Event
+    eo_id = int(get_jwt_identity())
+    
+    query = (
+        db.session.query(EventRegistration, Event.nama_event)
+        .join(Event, EventRegistration.event_id == Event.id)
+        .filter(Event.eo_id == eo_id)
+        .filter(EventRegistration.status == "paid")
+        .filter(EventRegistration.status_kehadiran_event != "hadir")
+        .filter(EventRegistration.scan_wajah.isnot(None))
+        .filter(EventRegistration.scan_wajah != "")
+    )
+    
+    # Real face verification check (mandatory)
+    face_image = request.files.get("face_image")
+    if not face_image:
+        return jsonify({"msg": "File gambar wajah (face_image) wajib diunggah untuk pencocokan AI"}), 400
+        
+    import os
+    from uuid import uuid4
+    from app import BASE_DIR
+    from app.utils.face_verifier import verify_faces
+    
+    ext = face_image.filename.rsplit('.', 1)[1].lower() if '.' in face_image.filename else 'png'
+    temp_dir = BASE_DIR / "uploads" / "temp"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    temp_file = temp_dir / f"scan_{uuid4().hex}.{ext}"
+    face_image.save(str(temp_file))
+    
+    try:
+        candidates = query.all()
+        matched_candidate = None
+        best_score = -1.0
+        
+        for registration, nama_event in candidates:
+            registered_photo_path = BASE_DIR / registration.scan_wajah
+            if not registered_photo_path.exists():
+                continue
+                
+            is_match, score, err = verify_faces(temp_file, registered_photo_path)
+            if is_match and score > best_score:
+                best_score = score
+                matched_candidate = (registration, nama_event)
+        
+        if matched_candidate:
+            registration, nama_event = matched_candidate
+            registration.status_kehadiran_event = "hadir"
+            registration.checkin_event_at = datetime.utcnow()
+            db.session.commit()
+            
+            return jsonify({
+                "msg": "Wajah terverifikasi dan check-in berhasil",
+                "registration_id": registration.id,
+                "nama_peserta": registration.nama_peserta,
+                "bib_number": registration.bib_number,
+                "kategori_lomba": registration.kategori_lomba,
+                "nama_event": nama_event,
+                "scan_wajah": registration.scan_wajah,
+                "status_kehadiran_event": registration.status_kehadiran_event,
+                "checkin_event_at": registration.checkin_event_at.isoformat(),
+                "similarity_score": best_score
+            }), 200
+        else:
+            return jsonify({"msg": "Wajah tidak cocok dengan peserta terdaftar mana pun"}), 400
+    finally:
+        if temp_file.exists():
+            try:
+                os.remove(str(temp_file))
+            except Exception:
+                pass
+
+
+
+@event_bp.route("/scan-history", methods=["GET"])
+@jwt_required()
+@eo_required()
+def scan_history():
+    from sqlalchemy import or_, desc
+    from app.models.event_model import Event
+    eo_id = int(get_jwt_identity())
+    
+    event_id = request.args.get("event_id", type=int)
+    
+    query = (
+        db.session.query(EventRegistration, Event.nama_event)
+        .join(Event, EventRegistration.event_id == Event.id)
+        .filter(Event.eo_id == eo_id)
+        .filter(or_(EventRegistration.status_kehadiran == "hadir", EventRegistration.status_kehadiran_event == "hadir"))
+    )
+    
+    if event_id:
+        query = query.filter(EventRegistration.event_id == event_id)
+        
+    # Order by whichever check-in happened last
+    registrations = query.order_by(desc(db.func.coalesce(EventRegistration.checkin_event_at, EventRegistration.scan_at))).all()
+    
+    result = []
+    for reg, nama_event in registrations:
+        result.append({
+            "id": reg.id,
+            "registration_id": reg.id,
+            "bib_number": reg.bib_number,
+            "nama_peserta": reg.nama_peserta,
+            "kategori_lomba": reg.kategori_lomba,
+            "nama_event": nama_event,
+            "scan_at": reg.scan_at.isoformat() if reg.scan_at else None,
+            "status_kehadiran": reg.status_kehadiran or "belum_hadir",
+            "status_kehadiran_event": reg.status_kehadiran_event or "belum_hadir",
+            "checkin_event_at": reg.checkin_event_at.isoformat() if reg.checkin_event_at else None
+        })
+        
     return jsonify(result), 200

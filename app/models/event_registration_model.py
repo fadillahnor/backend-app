@@ -123,6 +123,22 @@ class EventRegistration(db.Model):
         db.String(30),
         default="pending_payment"
     )
+    status_kehadiran = db.Column(
+        db.String(30),
+        default="belum_hadir"
+    )
+    scan_at = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+    status_kehadiran_event = db.Column(
+        db.String(30),
+        default="belum_hadir"
+    )
+    checkin_event_at = db.Column(
+        db.DateTime,
+        nullable=True
+    )
     reject_reason = db.Column(
     db.Text
     )

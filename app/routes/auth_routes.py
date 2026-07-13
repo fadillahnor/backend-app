@@ -254,7 +254,7 @@ def get_me():
         "is_verified": user.is_verified,
         "created_at": user.created_at.isoformat(),
         "registrations": registration_data,
-        "payment_verified": latest_registration.status == "approved" if latest_registration else None,
+        "payment_verified": latest_registration.status in ["paid", "approved"] if latest_registration else None,
         "bib_number": latest_registration.bib_number if latest_registration else None,
         "registration_status": latest_registration.status if latest_registration else None
     }), 200
