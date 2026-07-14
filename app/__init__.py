@@ -45,9 +45,11 @@ def create_app():
 
     from .routes.auth_routes import auth_bp
     from .routes.event_routes import event_bp
+    from .routes.admin_routes import admin_bp
 
     app.register_blueprint(auth_bp, url_prefix="")
     app.register_blueprint(event_bp, url_prefix="/event")
+    app.register_blueprint(admin_bp, url_prefix="/admin")
 
     # ================= PROFILE IMAGE =================
     @app.route('/uploads/profile/<filename>')
