@@ -1,0 +1,23 @@
+1. buat env di cmd
+2. 1. pip install flask flask_sqlalchemy flask_migrate flask-jwt-extended python-dotenv pymysql flask-mail passlib flasgger
+flask db init
+flask db migrate -m "init user"
+flask db upgrade
+3. buat database
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    nama VARCHAR(100) NOT NULL,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+
+    tgl_lahir DATE,
+    nohp VARCHAR(20),
+    alamat TEXT,
+
+    is_verified BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
