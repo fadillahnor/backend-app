@@ -1,77 +1,107 @@
 import os
-import smtplib
-import ssl
 import json
+import base64
 import urllib.request
 import urllib.error
-from email.message import EmailMessage
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 def send_otp_email(to_email, otp):
-    brevo_api  = os.getenv("BREVO_API_KEY")
-    brevo_user = os.getenv("BREVO_SMTP_USER")   # b21081001@smtp-brevo.com
-    brevo_pass = os.getenv("BREVO_SMTP_PASS")   # password dari tab SMTP Settings
+    """
+    Kirim OTP via HTTP API — bekerja di Railway (tidak butuh SMTP port).
+    Prioritas: Mailjet → Brevo → error.
 
-    # Prioritas 1: Brevo HTTP API (jika BREVO_API_KEY di-set)
-    if brevo_api:
-        sender = os.getenv("EMAIL_USER", "noreply@runtrack.com")
-        _send_via_brevo_api(brevo_api, sender, to_email, otp)
+    Setup Mailjet (gratis 6000 email/bulan, aktif langsung):
+      1. Daftar di app.mailjet.com
+      2. Account → API Keys → copy API Key & Secret Key
+      3. Tambah di Railway:
+           MAILJET_API_KEY    = ...
+           MAILJET_SECRET_KEY = ...
+           EMAIL_USER         = emailkamu@gmail.com  (sudah ada)
+    """
+    mj_api_key    = os.getenv("MAILJET_API_KEY")
+    mj_secret_key = os.getenv("MAILJET_SECRET_KEY")
+    brevo_api_key = os.getenv("BREVO_API_KEY")
+    sender_email  = os.getenv("EMAIL_USER", "noreply@runtrack.com")
 
-    # Prioritas 2: Brevo SMTP Relay (smtp-relay.brevo.com:587)
-    # Tidak diblokir Railway karena bukan smtp.gmail.com
-    elif brevo_user and brevo_pass:
-        _send_via_brevo_smtp(brevo_user, brevo_pass, to_email, otp)
-
+    if mj_api_key and mj_secret_key:
+        _send_via_mailjet(mj_api_key, mj_secret_key, sender_email, to_email, otp)
+    elif brevo_api_key:
+        _send_via_brevo_api(brevo_api_key, sender_email, to_email, otp)
     else:
         raise RuntimeError(
-            "Gagal mengirim OTP: Tambahkan BREVO_SMTP_USER dan BREVO_SMTP_PASS "
-            "dari tab 'SMTP Settings' di app.brevo.com/transactional/email/real-time, "
-            "atau tambahkan BREVO_API_KEY dari tab 'API Settings'."
+            "Gagal mengirim OTP: Set MAILJET_API_KEY + MAILJET_SECRET_KEY di Railway. "
+            "Daftar gratis di app.mailjet.com."
         )
 
 
-def _send_via_brevo_smtp(brevo_user, brevo_pass, to_email, otp):
-    """Brevo SMTP Relay — gratis 300 email/hari, bekerja di Railway.
-    Credentials dari: app.brevo.com > Transactional > Email > Real time > SMTP Settings
-      BREVO_SMTP_USER = login (contoh: b21081001@smtp-brevo.com)
-      BREVO_SMTP_PASS = password yang tertera
+def _send_via_mailjet(api_key, secret_key, sender_email, to_email, otp):
+    """Mailjet Transactional Email API v3.1
+    Gratis 6000 email/bulan (200/hari). Aktif langsung setelah daftar.
+    Daftar: app.mailjet.com → Account → API Keys
+    Set di Railway: MAILJET_API_KEY dan MAILJET_SECRET_KEY
     """
-    sender_name  = "RunTrack"
-    sender_email = os.getenv("EMAIL_USER", brevo_user)
+    payload = json.dumps({
+        "Messages": [
+            {
+                "From": {
+                    "Email": sender_email,
+                    "Name": "RunTrack"
+                },
+                "To": [
+                    {
+                        "Email": to_email,
+                        "Name": "User"
+                    }
+                ],
+                "Subject": "Kode OTP Verifikasi - RunTrack",
+                "TextPart": (
+                    f"Halo!\n\n"
+                    f"Kode OTP verifikasi akun RunTrack kamu adalah:\n\n"
+                    f"  {otp}\n\n"
+                    f"Kode berlaku selama 5 menit.\n\n"
+                    f"Jika kamu tidak merasa mendaftar, abaikan email ini.\n\n"
+                    f"- Tim RunTrack"
+                ),
+            }
+        ]
+    }).encode("utf-8")
 
-    msg = EmailMessage()
-    msg["Subject"] = "Kode OTP Verifikasi - RunTrack"
-    msg["From"]    = f"{sender_name} <{sender_email}>"
-    msg["To"]      = to_email
-    msg.set_content(
-        f"Halo!\n\n"
-        f"Kode OTP verifikasi akun RunTrack kamu adalah:\n\n"
-        f"  {otp}\n\n"
-        f"Kode berlaku selama 5 menit.\n\n"
-        f"Jika kamu tidak merasa mendaftar, abaikan email ini.\n\n"
-        f"- Tim RunTrack"
+    # Basic auth: base64(api_key:secret_key)
+    credentials = base64.b64encode(
+        f"{api_key}:{secret_key}".encode("utf-8")
+    ).decode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.mailjet.com/v3.1/send",
+        data=payload,
+        headers={
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
 
     try:
-        with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=20) as s:
-            s.ehlo()
-            s.starttls(context=ssl.create_default_context())
-            s.ehlo()
-            s.login(brevo_user, brevo_pass)
-            s.send_message(msg)
-    except smtplib.SMTPAuthenticationError as exc:
-        raise RuntimeError(f"Brevo SMTP Auth gagal: {exc}") from exc
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode()
+            result = json.loads(body)
+            # Mailjet returns 200 even for partial failures; check Messages status
+            messages = result.get("Messages", [])
+            if messages and messages[0].get("Status") != "success":
+                raise RuntimeError(f"Mailjet error: {messages[0]}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="ignore")
+        raise RuntimeError(f"Gagal kirim OTP via Mailjet: {exc.code} {body}") from exc
     except Exception as exc:
-        raise RuntimeError(f"Gagal kirim OTP via Brevo SMTP: {exc}") from exc
+        raise RuntimeError(f"Gagal kirim OTP via Mailjet: {exc}") from exc
 
 
 def _send_via_brevo_api(api_key, sender_email, to_email, otp):
-    """Brevo Transactional Email HTTP API v3.
-    Daftar gratis di brevo.com > Transactional > Email > Real time > API Settings.
-    Pastikan sender email sudah diverifikasi di Brevo Senders.
+    """Brevo Transactional Email API v3 (fallback).
+    Butuh akun Brevo yang sudah diaktivasi.
     """
     payload = json.dumps({
         "sender": {"name": "RunTrack", "email": sender_email},
