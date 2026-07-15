@@ -23,6 +23,20 @@ class User(db.Model):
     is_verified = db.Column(db.Boolean, default=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __init__(self, nama, username, password, email, tgl_lahir=None,
+                 nohp=None, alamat=None, foto_profile=None, role=1, is_verified=False):
+        self.nama = nama
+        self.username = username
+        self.password = password
+        self.email = email
+        self.tgl_lahir = tgl_lahir
+        self.nohp = nohp
+        self.alamat = alamat
+        self.foto_profile = foto_profile
+        self.role = role
+        self.is_verified = is_verified
+
     @property
     def role_name(self):
         roles = {
