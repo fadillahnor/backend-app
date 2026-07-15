@@ -17,6 +17,7 @@ def send_otp_email(to_email, otp):
     """
     Kirim OTP via SMTP dengan memaksa koneksi IPv4 (port 587).
     """
+    print(f"[EMAIL] Menyiapkan pengiriman OTP ke {to_email}...")
     msg = Message(
         subject="Kode OTP Verifikasi - RunTrack",
         recipients=[to_email],
@@ -30,7 +31,16 @@ def send_otp_email(to_email, otp):
         )
     )
     
+    # Set socket timeout agar tidak hang selamanya (mencegah 502 Bad Gateway)
+    original_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(10.0)
+    
     try:
+        print("[EMAIL] Mengirim email menggunakan Flask-Mail (SMTP)...")
         mail.send(msg)
+        print("[EMAIL] Email berhasil dikirim!")
     except Exception as exc:
-        raise RuntimeError(f"Gagal mengirim OTP via SMTP: {exc}")
+        print(f"[EMAIL] ERROR: Gagal mengirim email: {exc}")
+        raise RuntimeError(f"Gagal mengirim OTP via SMTP: {exc}. Catatan: Railway memblokir port SMTP (25, 465, 587) secara default untuk akun baru.")
+    finally:
+        socket.setdefaulttimeout(original_timeout)
