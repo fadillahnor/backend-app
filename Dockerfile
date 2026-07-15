@@ -22,7 +22,5 @@ COPY . .
 # Buat folder uploads agar tidak error saat runtime
 RUN mkdir -p uploads/profile uploads/event uploads/payment uploads/scan_wajah
 
-EXPOSE 5000
-
-# Jalankan dengan Gunicorn
-CMD ["gunicorn", "run:app", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120"]
+# Jalankan dengan Gunicorn, bind ke PORT (Railway) dengan fallback ke 5000
+CMD gunicorn run:app --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 120

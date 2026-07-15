@@ -5,7 +5,12 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 
     # ================= DATABASE =================
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///app.db")
+    db_url = os.getenv("DATABASE_URL", "sqlite:///app.db")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    elif db_url.startswith("mysql://"):
+        db_url = db_url.replace("mysql://", "mysql+pymysql://", 1)
+    SQLALCHEMY_DATABASE_URI = db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # ================= JWT =================
