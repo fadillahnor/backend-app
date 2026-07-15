@@ -208,7 +208,9 @@ def create_event(eo_id, data):
         harga=harga,
         kuota=kuota,
         nomor_rekening=data.get("nomor_rekening"),
-        jenis_bank=data.get("jenis_bank")
+        jenis_bank=data.get("jenis_bank"),
+        is_published=False,
+        status="pending_approval"
     )
 
     db.session.add(event)
@@ -314,6 +316,9 @@ def update_event(event, data):
         event.banner = save_banner_file(
             banner_file
         )
+
+    event.status = "pending_approval"
+    event.is_published = False
 
     db.session.commit()
 

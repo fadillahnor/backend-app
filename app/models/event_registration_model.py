@@ -111,14 +111,11 @@ class EventRegistration(db.Model):
     bukti_pembayaran = db.Column(
         db.String(255)
     )
-    bib_number = db.Column(
-    db.String(50),
-    unique=True
-)
 
     reject_reason = db.Column(
-    db.Text
-)
+        db.Text
+    )
+
     status = db.Column(
         db.String(30),
         default="pending_payment"
@@ -138,9 +135,6 @@ class EventRegistration(db.Model):
     checkin_event_at = db.Column(
         db.DateTime,
         nullable=True
-    )
-    reject_reason = db.Column(
-    db.Text
     )
     created_at = db.Column(
         db.DateTime,
