@@ -8,15 +8,22 @@ load_dotenv()
 
 
 def send_otp_email(to_email, otp):
-    api_key = os.getenv("RESEND_API_KEY")
-    sender_email = os.getenv("EMAIL_USER", "onboarding@resend.dev")
+    smtp_user = os.getenv("EMAIL_USER")
+    smtp_pass = os.getenv("EMAIL_PASS")
+    api_key   = os.getenv("RESEND_API_KEY")
 
-    # Jika RESEND_API_KEY ada, pakai Resend HTTP API (bekerja di Railway)
-    if api_key:
+    # Utamakan Gmail SMTP jika EMAIL_USER + EMAIL_PASS tersedia (gratis, tanpa domain)
+    if smtp_user and smtp_pass:
+        _send_via_smtp(to_email, otp)
+    elif api_key:
+        # Fallback ke Resend jika tidak ada SMTP credentials
+        # (Butuh domain terverifikasi di resend.com/domains agar bisa kirim ke semua email)
+        sender_email = smtp_user or "onboarding@resend.dev"
         _send_via_resend(api_key, sender_email, to_email, otp)
     else:
-        # Fallback SMTP — hanya untuk lokal
-        _send_via_smtp(to_email, otp)
+        raise RuntimeError(
+            "Gagal mengirim OTP: Tidak ada EMAIL_USER/EMAIL_PASS maupun RESEND_API_KEY."
+        )
 
 
 def _send_via_resend(api_key, sender_email, to_email, otp):
@@ -57,7 +64,10 @@ def _send_via_resend(api_key, sender_email, to_email, otp):
 
 
 def _send_via_smtp(to_email, otp):
-    """Fallback SMTP — hanya berfungsi di lokal, Railway memblokir port ini."""
+    """Gmail SMTP — gratis, bekerja di Railway maupun lokal.
+    Syarat: EMAIL_USER=gmail_kamu@gmail.com, EMAIL_PASS=App Password 16 karakter.
+    Cara buat App Password: myaccount.google.com/apppasswords (aktifkan 2FA dulu).
+    """
     import smtplib
     import ssl
     from email.message import EmailMessage
