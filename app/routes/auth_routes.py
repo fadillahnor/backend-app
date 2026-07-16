@@ -61,12 +61,18 @@ def register():
     if User.query.filter_by(email=data["email"]).first():
         return jsonify({"msg": "Email sudah digunakan"}), 400
 
+    if User.query.filter_by(username=data["username"]).first():
+        return jsonify({"msg": "Username sudah digunakan"}), 400
+
+    from sqlalchemy.exc import IntegrityError
     try:
         user = register_user(data)
     except ValueError as exc:
         return jsonify({"msg": str(exc)}), 400
-    except RuntimeError as exc:
-        return jsonify({"msg": str(exc)}), 500
+    except IntegrityError:
+        return jsonify({"msg": "Username atau Email sudah terdaftar"}), 400
+    except Exception as exc:
+        return jsonify({"msg": f"Terjadi kesalahan server: {str(exc)}"}), 500
 
     return jsonify({
         "msg": "Register berhasil, cek email untuk OTP",
