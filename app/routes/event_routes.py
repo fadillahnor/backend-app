@@ -633,13 +633,13 @@ def register_event_user(event_id):
     else:
         data = request.form.to_dict()
 
-    scan_wajah = request.files.get("scan_wajah") or request.files.get("scanWajah")
-    if scan_wajah:
-        data["scan_wajah"] = save_scan_wajah_file(scan_wajah)
-
-    data = normalize_registration_data(data)
-
     try:
+        scan_wajah = request.files.get("scan_wajah") or request.files.get("scanWajah")
+        if scan_wajah:
+            data["scan_wajah"] = save_scan_wajah_file(scan_wajah)
+
+        data = normalize_registration_data(data)
+
         registration = register_event(
             user_id,
             event_id,
